@@ -165,7 +165,7 @@ Observations:
 
 ## Rust ownership notebook
 
-`notebooks/rust_vs_python_intro.ipynb` is a separate small exercise: five short experiments
+[notebooks/rust_vs_python_intro.ipynb](https://github.com/luel-du/adult-income-analysis/blob/main/notebooks/rust_vs_python_intro.ipynb) is a separate small exercise: five short experiments
 with Rust's ownership rules (immutable by default, one owner per value, borrow or move,
 never read and write at once), each built around a loop over hours worked per week.
 Cells marked *fails on purpose* keep their compiler error as output, and the next cell shows
@@ -173,12 +173,12 @@ the fix. It needs the evcxr Rust kernel; outputs are saved so it can be read wit
 
 ## Tests, linting and CI
 
-* `tests/test_main.py` covers every function on a six-row sample that mimics
+* [tests/test_main.py](https://github.com/luel-du/adult-income-analysis/blob/main/tests/test_main.py) covers every function on a six-row sample that mimics
   the real file (leading spaces, a `?`, a duplicate row, a trailing blank
   line). It also checks that the pandas and polars group-by give the same
   numbers. The tests never download anything.
 * `ruff` checks and formats `src/` and `tests/` (configured in `pyproject.toml`).
-* `.github/workflows/test.yml` runs lint, format check, the tests, and the tests
+* [.github/workflows/test.yml](https://github.com/luel-du/adult-income-analysis/blob/main/.github/workflows/test.yml) runs lint, format check, the tests, and the tests
   again inside the Docker image on every push and pull request.
 
 ## Further reading
