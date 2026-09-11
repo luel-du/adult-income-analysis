@@ -1,5 +1,9 @@
 [![Python tests](https://github.com/luel-du/adult-income-analysis/actions/workflows/test.yml/badge.svg)](https://github.com/luel-du/adult-income-analysis/actions/workflows/test.yml)
-![Python](https://img.shields.io/badge/python-3.12-blue)
+![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
+![pandas](https://img.shields.io/badge/pandas-2.2-150458?logo=pandas&logoColor=white)
+![polars](https://img.shields.io/badge/polars-1.x-CD792C?logo=polars&logoColor=white)
+![code style: ruff](https://img.shields.io/badge/code%20style-ruff-D7FF64)
+![Docker](https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white)
 # Adult income analysis
 
 Exploratory analysis of the [UCI Adult (Census Income)](https://archive.ics.uci.edu/dataset/2/adult)
