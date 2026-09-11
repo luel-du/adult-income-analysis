@@ -1,3 +1,5 @@
+[![Python tests](https://github.com/luel-du/adult-income-analysis/actions/workflows/test.yml/badge.svg)](https://github.com/luel-du/adult-income-analysis/actions/workflows/test.yml)
+![Python](https://img.shields.io/badge/python-3.12-blue)
 # Adult income analysis
 
 Exploratory analysis of the [UCI Adult (Census Income)](https://archive.ics.uci.edu/dataset/2/adult)
