@@ -219,34 +219,31 @@ this file shows the latest run.
 
 **pandas**
 * [User guide](https://pandas.pydata.org/docs/user_guide/index.html), in particular
-  [group by](https://pandas.pydata.org/docs/user_guide/groupby.html) and
-  [working with missing data](https://pandas.pydata.org/docs/user_guide/missing_data.html).
+* [group by](https://pandas.pydata.org/docs/user_guide/groupby.html) and
+*  [working with missing data](https://pandas.pydata.org/docs/user_guide/missing_data.html).
 * [10 minutes to pandas](https://pandas.pydata.org/docs/user_guide/10min.html) for a quick refresher.
 
 **polars**
 * [User guide](https://docs.pola.rs/): the [expressions](https://docs.pola.rs/user-guide/concepts/expressions-and-contexts/)
-  chapter explains the `pl.col(...)` style used here.
 * [Coming from pandas](https://docs.pola.rs/user-guide/migration/pandas/): side-by-side translation of common operations.
 * [Python API reference](https://docs.pola.rs/api/python/stable/reference/index.html).
 
 **scikit-learn**
-* [Pipelines and composite estimators](https://scikit-learn.org/stable/modules/compose.html):
-  `Pipeline` and `ColumnTransformer` as used in `build_model()`.
+* [Pipelines and composite estimators](https://scikit-learn.org/stable/modules/compose.html): `Pipeline` and `ColumnTransformer` as used in `build_model()`.
 * [Logistic regression](https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression) and
-  [classification metrics](https://scikit-learn.org/stable/modules/model_evaluation.html#classification-metrics).
+* [classification metrics](https://scikit-learn.org/stable/modules/model_evaluation.html#classification-metrics).
 
 **Plotting**
 * [Matplotlib quick start](https://matplotlib.org/stable/users/explain/quick_start.html) and
-  [seaborn tutorial](https://seaborn.pydata.org/tutorial.html).
+* [seaborn tutorial](https://seaborn.pydata.org/tutorial.html).
 
 **Rust**
 * [The Rust Programming Language](https://doc.rust-lang.org/book/), chapter 4
-  [Understanding Ownership](https://doc.rust-lang.org/book/ch04-00-understanding-ownership.html)
-  covers everything in the Rust notebook.
+* [Understanding Ownership](https://doc.rust-lang.org/book/ch04-00-understanding-ownership.html) covers everything in the Rust notebook.
 * [Rust by Example: ownership and borrowing](https://doc.rust-lang.org/rust-by-example/scope.html).
 * [evcxr Jupyter kernel](https://github.com/evcxr/evcxr/tree/main/evcxr_jupyter): install instructions for running Rust in a notebook.
 
 **Tooling**
 * [ruff](https://docs.astral.sh/ruff/) (linter and formatter), [pytest](https://docs.pytest.org/en/stable/getting-started.html),
-  [GitHub Actions for Python](https://docs.github.com/en/actions/use-cases-and-examples/building-and-testing/building-and-testing-python),
-  [Dockerfile reference](https://docs.docker.com/reference/dockerfile/).
+* [GitHub Actions for Python](https://docs.github.com/en/actions/use-cases-and-examples/building-and-testing/building-and-testing-python),
+* [Dockerfile reference](https://docs.docker.com/reference/dockerfile/).

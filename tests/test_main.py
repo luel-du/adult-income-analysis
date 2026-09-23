@@ -1,8 +1,7 @@
 """Tests for src/main.py, grouped by pipeline step.
 
 Nothing here touches the network. `raw_file` is a 6-row sample in the exact format of the UCI
-file (leading spaces, '?' for missing, one duplicate row, a trailing blank line). `big_file`
-is a 40-row variant so the train/test split has enough rows for the model and system tests.
+file. `big_file`is a 40-row variant so the train/test split has enough rows for the model and system tests.
 """
 
 import pandas as pd
