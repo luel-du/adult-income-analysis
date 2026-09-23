@@ -179,8 +179,8 @@ def benchmark(path=DATA_FILE, scale=50, repeats=5) -> pd.DataFrame:
     return out.round(1)
 
 
-def main() -> None:
-    path = download_data()
+def main(path=DATA_FILE, fig_dir=FIG_DIR) -> None:
+    path = download_data(path)
     df_pd = load_pandas(path)
     summary = inspect_pandas(df_pd)
     df_pd = clean_pandas(df_pd)
@@ -191,8 +191,8 @@ def main() -> None:
 
     result = train_and_evaluate(df_pd)
     print(f"\nlogistic regression accuracy: {result['accuracy']:.3f}\n{result['report']}")
-    print("saved", plot_income_by_age(df_pd))
-    print("saved", plot_confusion_matrix(result["model"], result["X_test"], result["y_test"]))
+    print("saved", plot_income_by_age(df_pd, fig_dir / "income_by_age.png"))
+    print("saved", plot_confusion_matrix(result["model"], result["X_test"], result["y_test"], fig_dir / "confusion_matrix.png"))
     print("\npandas vs polars (best of 5 runs):\n", benchmark(path).to_string(index=False))
 
 

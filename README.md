@@ -10,6 +10,18 @@ Exploratory analysis of the [UCI Adult (Census Income)](https://archive.ics.uci.
 dataset with **pandas**, the same analysis repeated with **polars**, a first
 **logistic regression** model, and a timing comparison between the two libraries.
 
+## Motivation and goal
+
+Income data is a classic tabular problem: mixed numeric and text columns, missing values, an
+imbalanced target, and enough rows to make library speed matter. The goal of this project is to
+practise the full data-engineering loop on it: load and clean the data with two dataframe
+libraries, answer a few questions with filters and group-bys, fit a first model, and make every
+step reproducible with tests, linting, Docker and a CI workflow.
+
+**Results in short:** the share of high earners rises with education level (74 % of doctorates
+vs 16 % of high-school graduates), a logistic regression baseline reaches 85.8 % accuracy, and
+polars is 2 to 40 times faster than pandas on the same operations.
+
 Each row is one person from the 1994 US census. The target column, `income`,
 says whether the person earns more than 50K USD a year.
 
@@ -173,13 +185,32 @@ the fix. It needs the evcxr Rust kernel; outputs are saved so it can be read wit
 
 ## Tests, linting and CI
 
-* `tests/test_main.py` covers every function on a six-row sample that mimics
-  the real file (leading spaces, a `?`, a duplicate row, a trailing blank
-  line). It also checks that the pandas and polars group-by give the same
-  numbers. The tests never download anything.
-* `ruff` checks and formats `src/` and `tests/` (configured in `pyproject.toml`).
-* `.github/workflows/test.yml` runs lint, format check, the tests, and the tests
-  again inside the Docker image on every push and pull request.
+Run everything locally with:
+
+```bash
+make test      # 16 tests with coverage report (97 % of src/main.py)
+make check     # ruff lint + format check + tests
+```
+
+`tests/test_main.py` is grouped by pipeline step: data loading, preprocessing, filter and
+group-by, machine learning, visualisation, benchmark, and one **system test** that runs
+`main()` end to end on a temporary file and checks the printed results and the saved figures.
+Tests use a six-row sample in the exact format of the UCI file (leading spaces, `?` for missing,
+a duplicate row, a trailing blank line) plus a 40-row variant for the model, so nothing needs the
+network. Edge cases include the trailing blank line, an already clean frame, a filter that
+matches nothing, and a category unseen in training.
+
+`.github/workflows/test.yml` runs lint, format check and the tests on every push and pull
+request, then rebuilds the Docker image and runs the tests inside it. The badge at the top of
+this file shows the latest run.
+
+**All tests passing locally**
+
+![all tests passing](figures/local_test.png)
+
+**GitHub Actions run**
+
+![CI passing](figures/ci_test.png)
 
 ## Further reading
 

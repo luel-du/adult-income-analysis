@@ -24,7 +24,7 @@ format-check:
 
 # Run tests
 test:
-	python -m pytest -q
+	python -m pytest -q --cov=src --cov-report=term-missing
 
 # Run all local checks: lint, formatting, and tests
 check: lint format-check test

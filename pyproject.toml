@@ -8,3 +8,5 @@ select = ["E", "F", "I", "B", "UP"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+# a system-wide Datadog agent pre-imports ddtrace into every Python process on some machines
+filterwarnings = ["ignore:Module already imported so cannot be rewritten. ddtrace:pytest.PytestAssertRewriteWarning"]
