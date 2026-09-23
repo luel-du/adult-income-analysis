@@ -104,7 +104,7 @@ def test_group_by_education_pandas(df_pd):
 
 def test_group_by_education_polars_equals_pandas(df_pd, df_pl):
     expected = main.group_by_education_pandas(main.clean_pandas(df_pd))
-    got = main.group_by_education_polars(main.clean_polars(df_pl)).to_pandas()
+    got = pd.DataFrame(main.group_by_education_polars(main.clean_polars(df_pl)).to_dict(as_series=False))
     pd.testing.assert_frame_equal(
         expected.sort_values("education").reset_index(drop=True),
         got.sort_values("education").reset_index(drop=True),
