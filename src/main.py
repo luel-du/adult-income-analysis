@@ -192,7 +192,8 @@ def main(path=DATA_FILE, fig_dir=FIG_DIR) -> None:
     result = train_and_evaluate(df_pd)
     print(f"\nlogistic regression accuracy: {result['accuracy']:.3f}\n{result['report']}")
     print("saved", plot_income_by_age(df_pd, fig_dir / "income_by_age.png"))
-    print("saved", plot_confusion_matrix(result["model"], result["X_test"], result["y_test"], fig_dir / "confusion_matrix.png"))
+    model, X_te, y_te = result["model"], result["X_test"], result["y_test"]
+    print("saved", plot_confusion_matrix(model, X_te, y_te, fig_dir / "confusion_matrix.png"))
     print("\npandas vs polars (best of 5 runs):\n", benchmark(path).to_string(index=False))
 
 
