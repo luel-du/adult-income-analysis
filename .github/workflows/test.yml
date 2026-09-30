@@ -4,49 +4,80 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+  schedule:
+    # Mondays 06:00 UTC. Dependencies are not pinned and the data comes from UCI,
+    # so a weekly run catches breakage that no commit of ours caused.
+    - cron: "0 6 * * 1"
+
+# a newer push to the same branch cancels the run that is still in progress
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   lint:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
+          cache: pip
       - name: Install dependencies
         run: make install
-
       - name: Lint with ruff
         run: make lint
-
       - name: Check formatting with ruff
         run: make format-check
 
   test:
     runs-on: ubuntu-latest
-
+    strategy:
+      fail-fast: false # let every Python version finish, so one failure does not hide another
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-
+          python-version: ${{ matrix.python-version }}
+          cache: pip
       - name: Install dependencies
         run: make install
-
-      - name: Run tests
+      - name: Run tests with coverage
         run: make test
+      - name: Add coverage table to the run summary
+        if: matrix.python-version == '3.12'
+        run: python -m coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
 
+  docker:
+    runs-on: ubuntu-latest
+    needs: [lint, test] # no point building an image from code that fails its checks
+    steps:
+      - uses: actions/checkout@v4
       - name: Build Docker image
         run: make docker-build
-
       - name: Run tests in Docker
         run: make docker-test
+
+  pipeline:
+    # Full analysis on the real UCI data. Too slow and too network-dependent for every push,
+    # so it runs only on the weekly schedule or when started by hand from the Actions tab.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: make install
+      - name: Run the analysis end to end
+        run: make run
+      - name: Upload generated figures
+        uses: actions/upload-artifact@v4
+        with:
+          name: figures
+          path: figures/*.png

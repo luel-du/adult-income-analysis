@@ -200,9 +200,21 @@ a duplicate row, a trailing blank line) plus a 40-row variant for the model, so 
 network. Edge cases include the trailing blank line, an already clean frame, a filter that
 matches nothing, and a category unseen in training.
 
-`.github/workflows/test.yml` runs lint, format check and the tests on every push and pull
-request, then rebuilds the Docker image and runs the tests inside it. The badge at the top of
-this file shows the latest run.
+### Continuous integration
+
+`.github/workflows/test.yml` runs on every push and pull request, and the badge at the top of
+this file shows the latest result. It has four jobs:
+
+| job | what it does |
+|---|---|
+| `lint` | `ruff check` and `ruff format --check` |
+| `test` | the test suite with coverage on a **matrix** of Python 3.11, 3.12 and 3.13; the coverage table is written to the run summary |
+| `docker` | builds the image and runs the tests inside it, only after `lint` and `test` pass |
+| `pipeline` | runs the full analysis on the real UCI data and uploads the figures as an artifact; **scheduled** weekly and startable by hand, not on every push |
+
+The weekly schedule exists because two things can break without any commit: the dependencies
+are not pinned, and the data is downloaded from UCI. The unit tests never touch the network, so
+the scheduled `pipeline` job is the one place where the real download is exercised.
 
 **All tests passing locally**
 
