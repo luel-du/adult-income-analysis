@@ -70,10 +70,17 @@ def test_download_data_uses_cache(raw_file):
 
 
 # 2. preprocessing
-def test_inspect_pandas_counts(df_pd):
-    assert main.inspect_pandas(df_pd, verbose=False) == {
+def test_summarize_counts(df_pd):
+    assert main.summarize(df_pd) == {
         "rows": 6, "columns": 15, "missing_values": 1, "duplicate_rows": 1
     }  # fmt: skip
+
+
+def test_summarize_prints_nothing_and_overview_prints(df_pd, capsys):
+    main.summarize(df_pd)
+    assert capsys.readouterr().out == ""
+    main.print_overview(df_pd)
+    assert "missing per column" in capsys.readouterr().out
 
 
 def test_clean_removes_duplicates_in_both_libraries(df_pd, df_pl):
@@ -126,9 +133,9 @@ def test_model_predicts_binary_labels(df_pd):
 
 def test_train_and_evaluate_reports_accuracy(big_file):
     result = main.train_and_evaluate(main.load_pandas(big_file))
-    assert 0.0 <= result["accuracy"] <= 1.0
-    assert len(result["X_test"]) == 8  # 20 % of 40 rows
-    assert "precision" in result["report"]
+    assert 0.0 <= result.accuracy <= 1.0
+    assert len(result.X_test) == 8  # 20 % of 40 rows
+    assert "precision" in result.report
 
 
 def test_model_handles_unseen_category(df_pd):
@@ -144,7 +151,7 @@ def test_plots_write_png_files(big_file, tmp_path):
     df = main.load_pandas(big_file)
     result = main.train_and_evaluate(df)
     fig1 = main.plot_income_by_age(df, tmp_path / "a.png")
-    fig2 = main.plot_confusion_matrix(result["model"], result["X_test"], result["y_test"], tmp_path / "b.png")
+    fig2 = main.plot_confusion_matrix(result, tmp_path / "b.png")
     assert fig1.stat().st_size > 0 and fig2.stat().st_size > 0
 
 

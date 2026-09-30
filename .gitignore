@@ -7,3 +7,6 @@ venv/
 .ipynb_checkpoints/
 
 data/
+
+# coverage data written by pytest-cov
+.coverage

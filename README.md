@@ -81,7 +81,7 @@ quirks that both loaders have to handle the same way:
 
 ### 2. Inspect the data
 
-`inspect_pandas()` prints `head()`, `info()` and `describe()` and returns the
+`print_overview()` prints `head()`, `info()` and `describe()`, and `summarize()` returns the
 row, missing and duplicate counts. Findings:
 
 * six integer columns and nine text columns, no wrong dtypes;
@@ -218,7 +218,7 @@ What I learned building it:
 Run everything locally with:
 
 ```bash
-make test      # 16 tests with coverage report (97 % of src/main.py)
+make test      # 17 tests with coverage report (98 % of src/main.py)
 make check     # ruff lint + format check + tests
 ```
 
@@ -253,6 +253,33 @@ the scheduled `pipeline` job is the one place where the real download is exercis
 **GitHub Actions run**
 
 ![CI passing](figures/ci_test.png)
+
+## Refactoring
+
+After the analysis worked, `src/main.py` was refactored without changing what it computes.
+Formatting and linting are done by `ruff`, which covers the roles of `black` and `flake8`
+(`make format`, `make lint`, and both run in CI).
+
+| before | after | why |
+|---|---|---|
+| `inspect_pandas(df, verbose=True)` both computed the counts and printed, switched by a flag | `summarize(df)` returns the counts, `print_overview(df)` prints | one job per function; tests no longer pass a flag to keep a function quiet |
+| `train_and_evaluate()` returned a dict with five string keys | a frozen `ModelResult` dataclass | a mistyped field fails immediately, and `plot_confusion_matrix(result)` takes one argument instead of three |
+| `"income"`, `">50K"`, `["<=50K", ">50K"]` and `40` typed out across the file | constants `TARGET`, `HIGH_INCOME`, `CLASS_LABELS`, `FULL_TIME_HOURS` | one place to change, and the names say what the values mean |
+| both plot functions repeated the same mkdir, save, close lines | `_save_figure()` | duplicated code removed |
+| `main()` ran every step in one block | `explore()` and `model_and_plot()`, leaving a four-line `main()` | `main()` now reads as the pipeline |
+| timing helpers `_time_ms` and `_run_ms` | `_best_of_ms` and `_elapsed_ms` | the names say what is measured |
+| benchmark labels hard-coded "32k rows" | labels computed from the data | the label was wrong for any other input; this is the only intended change in output |
+
+How I checked that nothing broke:
+
+* **Tests.** 16 passed before. They were updated for the new names and pass again, plus one
+  new test that `summarize()` prints nothing.
+* **Same results.** I ran the full pipeline on the real data before and after and compared:
+  all 117 lines of analysis output are identical, and both figures are byte-for-byte the same.
+* **CI.** The commit also went through lint, the format check, the Python 3.11 to 3.13 test
+  matrix and the Docker job.
+
+<img src="figures/refactor_diff.png" alt="commit diff of the refactoring" width="800">
 
 ## Further reading
 

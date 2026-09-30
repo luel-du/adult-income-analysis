@@ -1,5 +1,6 @@
 import time
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 
 import matplotlib
@@ -21,11 +22,26 @@ COLS = ["age", "workclass", "fnlwgt", "education", "education_num", "marital_sta
         "relationship", "race", "sex", "capital_gain", "capital_loss", "hours_per_week",
         "native_country", "income"]  # fmt: skip
 
+TARGET = "income"
+HIGH_INCOME = ">50K"
+CLASS_LABELS = ["<=50K", HIGH_INCOME]
+FULL_TIME_HOURS = 40
 NUM_COLS = ["age", "fnlwgt", "education_num", "capital_gain", "capital_loss", "hours_per_week"]
-CAT_COLS = [c for c in COLS if c not in NUM_COLS and c != "income"]
+CAT_COLS = [c for c in COLS if c not in NUM_COLS and c != TARGET]
 ROOT = Path(__file__).resolve().parent.parent
 DATA_FILE = ROOT / "data" / "adult.data"
 FIG_DIR = ROOT / "figures"
+
+
+@dataclass(frozen=True)
+class ModelResult:
+    """A fitted model with the held-out data and scores needed to report on it."""
+
+    model: Pipeline
+    X_test: pd.DataFrame
+    y_test: pd.Series
+    accuracy: float
+    report: str
 
 
 # 1. import
@@ -53,15 +69,17 @@ def load_polars(path=DATA_FILE) -> pl.DataFrame:
 
 
 # 2. inspect and clean
-def inspect_pandas(df: pd.DataFrame, verbose=True) -> dict:
-    summary = {"rows": len(df), "columns": df.shape[1], "missing_values": int(df.isna().sum().sum()),
-               "duplicate_rows": int(df.duplicated().sum())}  # fmt: skip
-    if verbose:
-        print(df.head(), "\n")
-        df.info()
-        print("\n", df.describe().round(2), "\n\nmissing per column:\n", df.isna().sum(), sep="")
-        print(f"\nduplicate rows: {summary['duplicate_rows']}")
-    return summary
+def summarize(df: pd.DataFrame) -> dict:
+    """Row, column, missing-value and duplicate counts. Pure: prints nothing."""
+    return {"rows": len(df), "columns": df.shape[1], "missing_values": int(df.isna().sum().sum()),
+            "duplicate_rows": int(df.duplicated().sum())}  # fmt: skip
+
+
+def print_overview(df: pd.DataFrame) -> None:
+    """head(), info(), describe() and the missing values per column."""
+    print(df.head(), "\n")
+    df.info()
+    print("\n", df.describe().round(2), "\n\nmissing per column:\n", df.isna().sum(), sep="")
 
 
 def clean_pandas(df: pd.DataFrame) -> pd.DataFrame:
@@ -73,18 +91,18 @@ def clean_polars(df: pl.DataFrame) -> pl.DataFrame:
 
 
 # 3. filter and group
-def filter_overtime_pandas(df: pd.DataFrame, hours=40) -> pd.DataFrame:
+def filter_overtime_pandas(df: pd.DataFrame, hours=FULL_TIME_HOURS) -> pd.DataFrame:
     return df[df["hours_per_week"] > hours]
 
 
-def filter_overtime_polars(df: pl.DataFrame, hours=40) -> pl.DataFrame:
+def filter_overtime_polars(df: pl.DataFrame, hours=FULL_TIME_HOURS) -> pl.DataFrame:
     return df.filter(pl.col("hours_per_week") > hours)
 
 
 def group_by_education_pandas(df: pd.DataFrame) -> pd.DataFrame:
     """Per education level: count, mean hours, mean capital gain, share earning >50K."""
     return (
-        df.assign(high_income=df["income"].eq(">50K"))
+        df.assign(high_income=df[TARGET].eq(HIGH_INCOME))
         .groupby("education")
         .agg(count=("age", "size"), mean_hours_per_week=("hours_per_week", "mean"),
              mean_capital_gain=("capital_gain", "mean"), share_high_income=("high_income", "mean"))
@@ -98,14 +116,14 @@ def group_by_education_polars(df: pl.DataFrame) -> pl.DataFrame:
         pl.len().alias("count"),
         pl.col("hours_per_week").mean().alias("mean_hours_per_week"),
         pl.col("capital_gain").mean().alias("mean_capital_gain"),
-        (pl.col("income") == ">50K").mean().alias("share_high_income"),
+        (pl.col(TARGET) == HIGH_INCOME).mean().alias("share_high_income"),
     ).sort("share_high_income", descending=True)  # fmt: skip
 
 
 # 4. machine learning
 def prepare_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
-    """X = all columns but income, y = 1 if income >50K else 0."""
-    return df.drop(columns=["income"]), df["income"].eq(">50K").astype(int).rename("high_income")
+    """X = all columns but the target, y = 1 if income >50K else 0."""
+    return df.drop(columns=[TARGET]), df[TARGET].eq(HIGH_INCOME).astype(int).rename("high_income")
 
 
 def build_model() -> Pipeline:
@@ -115,85 +133,100 @@ def build_model() -> Pipeline:
     return Pipeline([("pre", pre), ("clf", LogisticRegression(max_iter=1000))])
 
 
-def train_and_evaluate(df: pd.DataFrame, test_size=0.2, random_state=42) -> dict:
+def train_and_evaluate(df: pd.DataFrame, test_size=0.2, random_state=42) -> ModelResult:
     X, y = prepare_features(df)
     X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=y)
     model = build_model().fit(X_tr, y_tr)
     pred = model.predict(X_te)
-    return {"model": model, "X_test": X_te, "y_test": y_te, "accuracy": accuracy_score(y_te, pred),
-            "report": classification_report(y_te, pred, target_names=["<=50K", ">50K"])}  # fmt: skip
+    report = classification_report(y_te, pred, target_names=CLASS_LABELS)
+    return ModelResult(model, X_te, y_te, accuracy_score(y_te, pred), report)
 
 
 # 5. visualisation
-def plot_income_by_age(df: pd.DataFrame, out=FIG_DIR / "income_by_age.png") -> Path:
-    """Pie of income classes + stacked age histogram by income class."""
+def _save_figure(fig, out: Path) -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-    counts = df["income"].value_counts()
-    ax1.pie(counts, labels=counts.index, autopct="%1.1f%%", startangle=90, colors=["#4C72B0", "#DD8452"])  # fmt: skip
-    ax1.set_title("Income class distribution")
-    sns.histplot(data=df, x="age", hue="income", bins=30, multiple="stack", ax=ax2)
-    ax2.set_title("Age distribution by income class")
-    fig.tight_layout()
     fig.savefig(out, dpi=120)
     plt.close(fig)
     return out
 
 
-def plot_confusion_matrix(model, X_test, y_test, out=FIG_DIR / "confusion_matrix.png") -> Path:
-    out.parent.mkdir(parents=True, exist_ok=True)
-    labels = ["<=50K", ">50K"]
-    disp = ConfusionMatrixDisplay.from_estimator(model, X_test, y_test, display_labels=labels, cmap="Blues")
+def plot_income_by_age(df: pd.DataFrame, out=FIG_DIR / "income_by_age.png") -> Path:
+    """Pie of income classes + stacked age histogram by income class."""
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    counts = df[TARGET].value_counts()
+    ax1.pie(counts, labels=counts.index, autopct="%1.1f%%", startangle=90, colors=["#4C72B0", "#DD8452"])  # fmt: skip
+    ax1.set_title("Income class distribution")
+    sns.histplot(data=df, x="age", hue=TARGET, bins=30, multiple="stack", ax=ax2)
+    ax2.set_title("Age distribution by income class")
+    fig.tight_layout()
+    return _save_figure(fig, out)
+
+
+def plot_confusion_matrix(result: ModelResult, out=FIG_DIR / "confusion_matrix.png") -> Path:
+    disp = ConfusionMatrixDisplay.from_estimator(
+        result.model, result.X_test, result.y_test, display_labels=CLASS_LABELS, cmap="Blues"
+    )
     disp.ax_.set_title("Logistic regression: confusion matrix")
-    disp.figure_.savefig(out, dpi=120)
-    plt.close(disp.figure_)
-    return out
+    return _save_figure(disp.figure_, out)
 
 
 # 7. pandas vs polars
-def _time_ms(fn, repeats) -> float:
-    """Best-of-N wall time in milliseconds."""
-    return min(_run_ms(fn) for _ in range(repeats))
-
-
-def _run_ms(fn) -> float:
+def _elapsed_ms(fn) -> float:
     start = time.perf_counter()
     fn()
     return (time.perf_counter() - start) * 1000
 
 
+def _best_of_ms(fn, repeats) -> float:
+    """Fastest of `repeats` runs, in milliseconds. The minimum is the least noisy estimate."""
+    return min(_elapsed_ms(fn) for _ in range(repeats))
+
+
 def benchmark(path=DATA_FILE, scale=50, repeats=5) -> pd.DataFrame:
     """Time the same operations in both libraries; filter/group run on the data repeated `scale` times."""
-    df_pd, df_pl = clean_pandas(load_pandas(path)), clean_polars(load_polars(path))
-    big_pd, big_pl = pd.concat([df_pd] * scale, ignore_index=True), pl.concat([df_pl] * scale)
-    n = f"{len(big_pd):,} rows"
+    raw_pd, raw_pl = load_pandas(path), load_polars(path)
+    big_pd = pd.concat([clean_pandas(raw_pd)] * scale, ignore_index=True)
+    big_pl = pl.concat([clean_polars(raw_pl)] * scale)
+    small, big = f"{len(raw_pd):,} rows", f"{len(big_pd):,} rows"
     ops = {
-        "read_csv (32k rows)": (lambda: load_pandas(path), lambda: load_polars(path)),
-        "drop duplicates (32k rows)": (lambda: clean_pandas(df_pd), lambda: clean_polars(df_pl)),
-        f"filter ({n})": (lambda: filter_overtime_pandas(big_pd), lambda: filter_overtime_polars(big_pl)),
-        f"group_by ({n})": (lambda: group_by_education_pandas(big_pd), lambda: group_by_education_polars(big_pl)),
+        f"read_csv ({small})": (lambda: load_pandas(path), lambda: load_polars(path)),
+        f"drop duplicates ({small})": (lambda: clean_pandas(raw_pd), lambda: clean_polars(raw_pl)),
+        f"filter ({big})": (lambda: filter_overtime_pandas(big_pd), lambda: filter_overtime_polars(big_pl)),
+        f"group_by ({big})": (lambda: group_by_education_pandas(big_pd), lambda: group_by_education_polars(big_pl)),
     }  # fmt: skip
-    rows = [(name, _time_ms(f_pd, repeats), _time_ms(f_pl, repeats)) for name, (f_pd, f_pl) in ops.items()]
+    rows = [(name, _best_of_ms(f_pd, repeats), _best_of_ms(f_pl, repeats)) for name, (f_pd, f_pl) in ops.items()]
     out = pd.DataFrame(rows, columns=["operation", "pandas_ms", "polars_ms"])
     out["speedup"] = out["pandas_ms"] / out["polars_ms"]
     return out.round(1)
 
 
+# the pipeline, one function per stage
+def explore(path: Path) -> pd.DataFrame:
+    """Steps 1-3: load, inspect, clean, filter and group. Returns the cleaned frame."""
+    raw = load_pandas(path)
+    print_overview(raw)
+    print(f"\nduplicate rows: {summarize(raw)['duplicate_rows']}")
+    df = clean_pandas(raw)
+    print(f"\nrows after dropping duplicates: {len(df)} (was {len(raw)})")
+    print(f"people working more than {FULL_TIME_HOURS} h/week: {len(filter_overtime_pandas(df))} of {len(df)}")
+    print("\nper education level (pandas):\n", group_by_education_pandas(df).round(3).to_string(index=False))
+    print("\nper education level (polars):\n", group_by_education_polars(clean_polars(load_polars(path))))
+    return df
+
+
+def model_and_plot(df: pd.DataFrame, fig_dir: Path) -> ModelResult:
+    """Steps 4-5: train and score the model, save both figures."""
+    result = train_and_evaluate(df)
+    print(f"\nlogistic regression accuracy: {result.accuracy:.3f}\n{result.report}")
+    print("saved", plot_income_by_age(df, fig_dir / "income_by_age.png"))
+    print("saved", plot_confusion_matrix(result, fig_dir / "confusion_matrix.png"))
+    return result
+
+
 def main(path=DATA_FILE, fig_dir=FIG_DIR) -> None:
     path = download_data(path)
-    df_pd = load_pandas(path)
-    summary = inspect_pandas(df_pd)
-    df_pd = clean_pandas(df_pd)
-    print(f"\nrows after dropping duplicates: {len(df_pd)} (was {summary['rows']})")
-    print(f"people working more than 40 h/week: {len(filter_overtime_pandas(df_pd))} of {len(df_pd)}")
-    print("\nper education level (pandas):\n", group_by_education_pandas(df_pd).round(3).to_string(index=False))
-    print("\nper education level (polars):\n", group_by_education_polars(clean_polars(load_polars(path))))
-
-    result = train_and_evaluate(df_pd)
-    print(f"\nlogistic regression accuracy: {result['accuracy']:.3f}\n{result['report']}")
-    print("saved", plot_income_by_age(df_pd, fig_dir / "income_by_age.png"))
-    model, X_te, y_te = result["model"], result["X_test"], result["y_test"]
-    print("saved", plot_confusion_matrix(model, X_te, y_te, fig_dir / "confusion_matrix.png"))
+    df = explore(path)
+    model_and_plot(df, fig_dir)
     print("\npandas vs polars (best of 5 runs):\n", benchmark(path).to_string(index=False))
 
 
