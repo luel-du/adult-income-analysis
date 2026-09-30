@@ -64,13 +64,7 @@ VS Code. It runs the same steps cell by cell with the intermediate tables and pl
 and its outputs are saved so it can be read without running it. The script in `src/` is the
 reference version that the tests and CI check.
 
-Inside Docker:
-
-```bash
-make docker-build
-make docker-run     # runs the analysis
-make docker-test    # runs the test suite
-```
+No Python on your machine? See [Docker](#docker) below.
 
 ## Steps
 
@@ -182,6 +176,42 @@ with Rust's ownership rules (immutable by default, one owner per value, borrow o
 never read and write at once), each built around a loop over hours worked per week.
 Cells marked *fails on purpose* keep their compiler error as output, and the next cell shows
 the fix. It needs the evcxr Rust kernel; outputs are saved so it can be read without one.
+
+## Docker
+
+The image packages Python 3.12, the dependencies and the code, so the analysis
+runs the same way on any machine with Docker and nothing else installed.
+
+```bash
+make docker-build   # docker build -t adult-income-analysis .
+make docker-run     # run the analysis; figures/ and data/ appear on your machine
+make docker-test    # run the test suite inside the image
+```
+
+`make docker-run` expands to:
+
+```bash
+docker run --rm --user $(id -u):$(id -g) \
+  -v "$PWD/data:/app/data" -v "$PWD/figures:/app/figures" adult-income-analysis
+```
+
+What I learned building it:
+
+* **A container's files disappear with it.** The first version wrote the plots inside the
+  container and `--rm` deleted them on exit. Mounting `figures/` and `data/` as volumes is what
+  makes the output usable, and it also caches the download between runs.
+* **Layer order is a cache strategy.** `requirements.txt` is copied and installed before the
+  source code, so editing `src/` rebuilds in seconds instead of reinstalling every package.
+* **Do not run as root.** The image creates an unprivileged `appuser`; `--user` on `docker run`
+  makes files written to the mounted folders belong to the host user.
+* **`.dockerignore` matters.** Notebooks, data, figures and `.git` stay out of the build
+  context, which keeps the build fast and the image small.
+* **CI builds the same image.** The `docker` job runs the tests inside it on every push, so the
+  Dockerfile cannot silently rot.
+
+<img src="figures/docker_build.png" alt="successful docker build" width="700">
+
+<img src="figures/docker_run.png" alt="analysis running in a container" width="700">
 
 ## Tests, linting and CI
 

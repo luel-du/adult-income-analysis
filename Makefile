@@ -37,9 +37,12 @@ run:
 docker-build:
 	docker build -t $(IMAGE_NAME) .
 
-# Run the application inside Docker
+# Run the analysis inside Docker. data/ and figures/ are mounted so the download is cached
+# and the plots land on the host; --user makes those files belong to you, not to root.
 docker-run:
-	docker run -it --rm $(IMAGE_NAME)
+	mkdir -p data figures
+	docker run --rm --user $$(id -u):$$(id -g) \
+		-v "$(CURDIR)/data:/app/data" -v "$(CURDIR)/figures:/app/figures" $(IMAGE_NAME)
 
 # Run the test suite inside Docker
 docker-test:
