@@ -139,7 +139,8 @@ What I learned building it:
   files belong to the host user.
 * **CI builds the same image** and runs the tests inside it on every push.
 
-<img src="figures/docker_build.png" alt="successful docker build" width="49%"> <img src="figures/docker_run.png" alt="analysis running in a container" width="49%">
+<img src="figures/docker_run.png" alt="analysis running in a container" width="49%">
+<img src="figures/docker_build.png" alt="successful docker build" width="49%"> 
 
 ## Tests and CI
 
