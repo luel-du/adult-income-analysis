@@ -1,186 +1,127 @@
 [![Python tests](https://github.com/luel-du/adult-income-analysis/actions/workflows/test.yml/badge.svg)](https://github.com/luel-du/adult-income-analysis/actions/workflows/test.yml)
-![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
-![pandas](https://img.shields.io/badge/pandas-2.2-150458?logo=pandas&logoColor=white)
+![Python 3.11 to 3.13](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
+![pandas](https://img.shields.io/badge/pandas-3.0-150458?logo=pandas&logoColor=white)
 ![polars](https://img.shields.io/badge/polars-1.x-CD792C?logo=polars&logoColor=white)
 ![code style: ruff](https://img.shields.io/badge/code%20style-ruff-D7FF64)
 ![Docker](https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white)
+
 # Adult income analysis
 
-Exploratory analysis of the [UCI Adult (Census Income)](https://archive.ics.uci.edu/dataset/2/adult)
-dataset with **pandas**, the same analysis repeated with **polars**, a first
-**logistic regression** model, and a timing comparison between the two libraries.
+**Who earns more than 50K a year, how well can a model predict it, and does the model work
+equally well for women and men?**
 
-## Motivation and goal
+Income predictions are used in lending, marketing and policy. A model that looks accurate
+overall can still fail one group more often than another, so this project checks both. The data
+is the [UCI Adult](https://archive.ics.uci.edu/dataset/2/adult) extract of the 1994 US census:
+32,561 people, 14 attributes, and whether each person earns more than 50K USD.
 
-Income data is a classic tabular problem: mixed numeric and text columns, missing values, an
-imbalanced target, and enough rows to make library speed matter. The goal of this project is to
-practise the full data-engineering loop on it: load and clean the data with two dataframe
-libraries, answer a few questions with filters and group-bys, fit a first model, and make every
-step reproducible with tests, linting, Docker and a CI workflow.
+## Key findings
 
-**Results in short:** the share of high earners rises with education level (74 % of doctorates
-vs 16 % of high-school graduates), a logistic regression baseline reaches 85.8 % accuracy, and
-polars is 2 to 40 times faster than pandas on the same operations.
+1. **Education is the clearest dividing line.** 74 % of people with a doctorate earn more than
+   50K, against 16 % of high-school graduates and under 8 % of those who did not finish school.
+2. **Gradient boosting is the best of three models** at 87 % accuracy. Plain logistic regression
+   misses 40 % of the high earners. Class weighting finds 84 % of them, but its precision drops
+   from 73 % to 57 %.
+3. **Every model finds fewer of the high-earning women than of the high-earning men**, by 9 to
+   15 points. The overall accuracy hides this completely.
+4. **Polars is 2 to 11 times faster than pandas** on the same operations.
 
-Each row is one person from the 1994 US census. The target column, `income`,
-says whether the person earns more than 50K USD a year.
+<img src="figures/income_by_education.png" alt="share earning more than 50K by education level" width="49%"> <img src="figures/recall_by_sex.png" alt="recall for women and men, per model" width="49%">
 
-| | |
-|---|---|
-| rows | 32,561 (24 exact duplicates, 32,537 after removing them) |
-| columns | 15: 6 numeric, 9 categorical (incl. the target) |
-| missing values | 4,262 cells, all in `workclass`, `occupation` and `native_country`, written as `?` in the raw file |
-| target balance | 75.9 % `<=50K`, 24.1 % `>50K` |
+## Quick start
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+make install     # exact versions from requirements.txt
+make run         # full analysis; downloads the data on first run, about 15 seconds
+make check       # lint, format check, tests
+```
+
+No Python installed? Use [Docker](#docker). Prefer to read along cell by cell? Open
+[`notebooks/adult_income_analysis.ipynb`](notebooks/adult_income_analysis.ipynb): it calls the
+same functions as the script and its outputs are saved.
+
+## Data preparation
+
+The raw file has no header, a space after every comma, `?` for missing values and a trailing
+blank line. Both loaders handle this, and a test checks that pandas and polars agree row for row.
+Every decision below is backed by a report the script prints (`missing_value_report()`,
+`top_coded_report()`).
+
+| issue | what the data shows | decision |
+|---|---|---|
+| 24 exact duplicate rows | | removed |
+| `occupation` missing in 1,843 rows, `workclass` in 1,836 of the same rows | only 10 % of these people earn more than 50K, against 24 % overall, so the gaps are **not random** | kept and labelled `Unknown`; dropping them would bias the data |
+| `native_country` missing in 583 rows | 25 % high earners, the same as overall | same label, for consistency |
+| `capital_gain` is exactly 99,999 for 159 people; the next value is 41,310 | a cap applied by the survey; all 159 are high earners | kept unchanged. A log transform was tested and lowered accuracy from 85.1 % to 84.4 %, so it is not used |
+| `age` 90 (43 people), `hours_per_week` 99 (85 people) | also caps | kept |
+| `fnlwgt` | a survey weight, not a fact about the person | excluded from the model |
+| `education` | repeats `education_num` | excluded from the model |
+
+## Results
+
+### Models
+
+Each model is scored with 5-fold cross-validation, so every person is predicted by a model that
+never saw them. Precision, recall and F1 are for the `>50K` class. Recall is the share of actual
+high earners the model finds.
+
+| model | accuracy | precision | recall | F1 | recall, women | recall, men |
+|---|---:|---:|---:|---:|---:|---:|
+| logistic regression | 85.1 % | 73.4 % | 60.2 % | 0.661 | 51.1 % | 61.8 % |
+| logistic regression, class-weighted | 81.0 % | 57.2 % | 84.4 % | 0.682 | 72.0 % | 86.6 % |
+| gradient boosting | **87.1 %** | **77.7 %** | 65.4 % | **0.710** | 57.8 % | 66.7 % |
+
+The gap between women and men is measured on 1,179 high-earning women and 6,660 high-earning
+men, so it is not noise. In the data itself 11 % of women and 31 % of men earn more than 50K,
+and the models reproduce that imbalance rather than correct it. Class weighting raises recall
+for both groups but leaves the widest gap.
+
+### pandas vs polars
+
+Same operations, best of five runs, pandas 3.0 and polars 1.44. Filter and group-by run on the
+data repeated 50 times.
+
+| operation | pandas (ms) | polars (ms) | speed-up |
+|---|---:|---:|---:|
+| read_csv, 32,561 rows | 40.7 | 17.2 | 2.4x |
+| clean, 32,561 rows | 29.8 | 6.3 | 4.7x |
+| filter, 1.63 M rows | 57.3 | 12.4 | 4.6x |
+| group_by, 1.63 M rows | 191.2 | 17.6 | 10.9x |
+
+Timings are from one laptop and vary a little between runs. Polars wins most on the group-by,
+which it runs in parallel on all cores. Pandas is still more convenient at the edges: it strips
+the spaces and skips the blank line for free, and scikit-learn takes its frames directly.
+
+## Takeaways
+
+* **Look before you impute.** The missing values here carried information. Counting them was
+  not enough; comparing the outcome inside and outside the gaps decided the treatment.
+* **One accuracy number is not an evaluation.** The best model by accuracy still finds only
+  58 % of the high-earning women.
+* **Benchmarks age.** With pandas 2.2 the group-by gap was 25x to 50x across my runs. Upgrading
+  to pandas 3.0 cut it to about 11x with no change to the code.
+* **"Works on my machine" is real.** A test passed locally and failed in CI because of a package
+  that was installed on the laptop but never declared. Pinned versions, CI and Docker exist to
+  catch exactly that.
 
 ## Project layout
 
 ```
-adult-income-analysis/
-├── src/main.py               # the whole analysis as small functions and  main()
-├── tests/test_main.py        # unit tests
-├── notebooks/
-│   ├── adult_income_analysis.ipynb   # same steps cell by cell, outputs saved
-│   └── rust_vs_python_intro.ipynb    # short Rust ownership experiments
-├── figures/                  # plots written by src/main.py
-├── data/                     # adult.data is downloaded here on first run
-├── requirements.txt
-├── pyproject.toml            # ruff and pytest configuration
-├── Makefile                  # install / lint / format / test / run / docker-*
-├── Dockerfile
-└── .github/workflows/test.yml
+src/main.py                         the analysis: small functions and a four-line main()
+tests/test_main.py                  23 tests, no network needed
+notebooks/adult_income_analysis.ipynb   the same analysis, cell by cell
+notebooks/rust_vs_python_intro.ipynb    Rust ownership experiments (side exercise)
+figures/                            charts written by the script, and screenshots
+requirements.txt                    exact dependency versions
+Makefile                            install, lint, format, test, check, run, docker-*
+Dockerfile, .github/workflows/test.yml, pyproject.toml
 ```
 
-## How to run
-
-```bash
-python -m venv .venv && source .venv/bin/activate
-make install        # pip install -r requirements.txt
-make run            # python src/main.py  (downloads the data on first run)
-make check          # ruff lint + format check + pytest
-```
-
-Prefer an interactive walkthrough? Open `notebooks/adult_income_analysis.ipynb` in Jupyter or
-VS Code. It runs the same steps cell by cell with the intermediate tables and plots visible,
-and its outputs are saved so it can be read without running it. The script in `src/` is the
-reference version that the tests and CI check.
-
-No Python on your machine? See [Docker](#docker) below.
-
-## Steps
-
-### 1. Import the dataset
-
-`download_data()` fetches the raw CSV from UCI once and caches it under `data/`.
-`load_pandas()` and `load_polars()` read that file. The raw file has three
-quirks that both loaders have to handle the same way:
-
-* there is no header row, so the 15 column names are supplied by hand;
-* every value after a comma starts with a space, and missing values are `?`;
-* the file ends with a blank line. pandas skips it; polars reads it as a row
-  of nulls, so the polars loader drops all-null rows.
-
-### 2. Inspect the data
-
-`print_overview()` prints `head()`, `info()` and `describe()`, and `summarize()` returns the
-row, missing and duplicate counts. Findings:
-
-* six integer columns and nine text columns, no wrong dtypes;
-* `capital_gain` and `capital_loss` are zero for most people and have a long
-  tail (max 99,999 and 4,356);
-* median age is 37, median hours per week is 40;
-* 24 exact duplicate rows, removed by `clean_pandas()` / `clean_polars()`.
-
-### 3. Basic filtering and grouping
-
-* **Filter:** people working more than 40 hours a week: 9,576 of 32,537 (29 %).
-* **Group by education** (`group_by_education_*`): count, mean hours per week,
-  mean capital gain and the share earning more than 50K.
-
-| education | count | mean hours/week | mean capital gain | share >50K |
-|---|---:|---:|---:|---:|
-| Doctorate | 413 | 47.0 | 4,770 | 0.74 |
-| Prof-school | 576 | 47.4 | 10,414 | 0.73 |
-| Masters | 1,722 | 43.8 | 2,564 | 0.56 |
-| Bachelors | 5,353 | 42.6 | 1,757 | 0.41 |
-| Assoc-voc | 1,382 | 41.6 | 715 | 0.26 |
-| Some-college | 7,282 | 38.9 | 600 | 0.19 |
-| HS-grad | 10,494 | 40.6 | 577 | 0.16 |
-| 11th | 1,175 | 33.9 | 215 | 0.05 |
-| Preschool | 50 | 36.4 | 916 | 0.00 |
-
-(Full table is printed by `make run`.) The share of high earners rises almost
-monotonically with education level, and the highest levels also work the
-most hours. The polars version returns the same table.
-
-### 4. Machine learning: logistic regression
-
-The target is binary, so logistic regression is a natural first model.
-`build_model()` is a scikit-learn pipeline: numeric columns are standardised,
-categorical columns are one-hot encoded, then a `LogisticRegression` is fit.
-`train_and_evaluate()` uses a stratified 80/20 split with a fixed seed.
-
-| | precision | recall | f1 | support |
-|---|---:|---:|---:|---:|
-| `<=50K` | 0.89 | 0.93 | 0.91 | 4,940 |
-| `>50K` | 0.74 | 0.63 | 0.68 | 1,568 |
-| **accuracy** | | | **0.858** | 6,508 |
-
-The model does well on the majority class but misses 37 % of the high
-earners. Because the classes are imbalanced, accuracy alone is misleading; the
-next things to try are `class_weight="balanced"`, a tree-based model, and
-dropping `fnlwgt` (a survey weight, not a personal attribute).
-
-![confusion matrix](figures/confusion_matrix.png)
-
-### 5. Visualisation
-
-`plot_income_by_age()` writes `figures/income_by_age.png`: a pie of the target
-classes and a stacked histogram of age by income class. High earners are
-concentrated between roughly 35 and 55; almost nobody under 25 earns more
-than 50K.
-
-![income by age](figures/income_by_age.png)
-
-### 7. pandas vs polars
-
-`benchmark()` runs the same four operations with both libraries and reports the
-best of five runs. Filtering and grouping run on the dataset repeated 50 times
-(1.63 million rows) so the timings are large enough to compare.
-
-| operation | pandas (ms) | polars (ms) | speed-up |
-|---|---:|---:|---:|
-| read_csv (32k rows) | 28.2 | 13.9 | 2.0x |
-| drop duplicates (32k rows) | 10.7 | 4.2 | 2.5x |
-| filter hours > 40 (1.63M rows) | 69.6 | 12.5 | 5.6x |
-| group_by education (1.63M rows) | 711.9 | 16.3 | 43.7x |
-
-Measured on one laptop, single run; absolute numbers will differ on other
-machines but the ordering is stable.
-
-Observations:
-
-* polars is faster on every operation, and the gap grows with the size of the
-  data and the amount of work per row. Group-by is where it shines: polars
-  runs the aggregation in parallel on all cores, pandas is single-threaded.
-* the code differs in style. pandas is eager and index-based; polars uses
-  expressions (`pl.col(...)`) that it can plan and optimise before running.
-* pandas is still more convenient at the edges: it stripped the spaces and
-  skipped the blank line for free, and scikit-learn takes a pandas frame
-  directly. In this project polars is used for the data steps and the model
-  is trained on pandas.
-
-## Rust ownership notebook
-
-`notebooks/rust_vs_python_intro.ipynb` is a separate small exercise: five short experiments
-with Rust's ownership rules (immutable by default, one owner per value, borrow or move,
-never read and write at once), each built around a loop over hours worked per week.
-Cells marked *fails on purpose* keep their compiler error as output, and the next cell shows
-the fix. It needs the evcxr Rust kernel; outputs are saved so it can be read without one.
+Results are reproducible: dependency versions are pinned, the cross-validation folds and the
+gradient boosting model use a fixed seed, and the downloaded data file is cached in `data/`.
 
 ## Docker
-
-The image packages Python 3.12, the dependencies and the code, so the analysis
-runs the same way on any machine with Docker and nothing else installed.
 
 ```bash
 make docker-build   # docker build -t adult-income-analysis .
@@ -188,131 +129,71 @@ make docker-run     # run the analysis; figures/ and data/ appear on your machin
 make docker-test    # run the test suite inside the image
 ```
 
-`make docker-run` expands to:
-
-```bash
-docker run --rm --user $(id -u):$(id -g) \
-  -v "$PWD/data:/app/data" -v "$PWD/figures:/app/figures" adult-income-analysis
-```
-
 What I learned building it:
 
-* **A container's files disappear with it.** The first version wrote the plots inside the
-  container and `--rm` deleted them on exit. Mounting `figures/` and `data/` as volumes is what
-  makes the output usable, and it also caches the download between runs.
-* **Layer order is a cache strategy.** `requirements.txt` is copied and installed before the
-  source code, so editing `src/` rebuilds in seconds instead of reinstalling every package.
-* **Do not run as root.** The image creates an unprivileged `appuser`; `--user` on `docker run`
-  makes files written to the mounted folders belong to the host user.
-* **`.dockerignore` matters.** Notebooks, data, figures and `.git` stay out of the build
-  context, which keeps the build fast and the image small.
-* **CI builds the same image.** The `docker` job runs the tests inside it on every push, so the
-  Dockerfile cannot silently rot.
+* **A container's files disappear with it.** The first version wrote the charts inside the
+  container and `--rm` deleted them. Mounting `figures/` and `data/` as volumes fixed that.
+* **Layer order is a cache strategy.** Dependencies are installed before the code is copied, so
+  editing `src/` rebuilds in seconds.
+* **Do not run as root.** The image has an unprivileged user, and `--user` makes the output
+  files belong to the host user.
+* **CI builds the same image** and runs the tests inside it on every push.
 
-<img src="figures/docker_build.png" alt="successful docker build" width="700">
+<img src="figures/docker_build.png" alt="successful docker build" width="49%"> <img src="figures/docker_run.png" alt="analysis running in a container" width="49%">
 
-<img src="figures/docker_run.png" alt="analysis running in a container" width="700">
-
-## Tests, linting and CI
-
-Run everything locally with:
+## Tests and CI
 
 ```bash
-make test      # 17 tests with coverage report (98 % of src/main.py)
-make check     # ruff lint + format check + tests
+make test      # 23 tests with a coverage report (98 % of src/main.py)
 ```
 
-`tests/test_main.py` is grouped by pipeline step: data loading, preprocessing, filter and
-group-by, machine learning, visualisation, benchmark, and one **system test** that runs
-`main()` end to end on a temporary file and checks the printed results and the saved figures.
-Tests use a six-row sample in the exact format of the UCI file (leading spaces, `?` for missing,
-a duplicate row, a trailing blank line) plus a 40-row variant for the model, so nothing needs the
-network. Edge cases include the trailing blank line, an already clean frame, a filter that
-matches nothing, and a category unseen in training.
+The tests are grouped by pipeline step, plus one system test that runs `main()` end to end.
+They use a six-row sample in the exact format of the UCI file, so nothing needs the network.
+Edge cases include the trailing blank line, a report with nothing missing, a filter that matches
+nothing, a category unseen in training, and a group with no high earners.
 
-### Continuous integration
-
-`.github/workflows/test.yml` runs on every push and pull request, and the badge at the top of
-this file shows the latest result. It has four jobs:
+`.github/workflows/test.yml` runs on every push and pull request:
 
 | job | what it does |
 |---|---|
 | `lint` | `ruff check` and `ruff format --check` |
-| `test` | the test suite with coverage on a **matrix** of Python 3.11, 3.12 and 3.13; the coverage table is written to the run summary |
-| `docker` | builds the image and runs the tests inside it, only after `lint` and `test` pass |
-| `pipeline` | runs the full analysis on the real UCI data and uploads the figures as an artifact; **scheduled** weekly and startable by hand, not on every push |
+| `test` | tests with coverage on a **matrix** of Python 3.11, 3.12 and 3.13 |
+| `docker` | builds the image and runs the tests inside it, after `lint` and `test` pass |
+| `pipeline` | full analysis on the real UCI data, figures uploaded as an artifact; **scheduled** weekly, not on every push |
 
-The weekly schedule exists because two things can break without any commit: the dependencies
-are not pinned, and the data is downloaded from UCI. The unit tests never touch the network, so
-the scheduled `pipeline` job is the one place where the real download is exercised.
+The weekly run exists because the data is downloaded from UCI, which can change or go offline
+without any commit here. It is the one place where the real download is exercised.
 
-**All tests passing locally**
-
-![all tests passing](figures/local_test.png)
-
-**GitHub Actions run**
-
-![CI passing](figures/ci_test.png)
+<img src="figures/local_test.png" alt="tests passing locally" width="49%"> <img src="figures/ci_test.png" alt="GitHub Actions run passing" width="49%">
 
 ## Refactoring
 
-After the analysis worked, `src/main.py` was refactored without changing what it computes.
-Formatting and linting are done by `ruff`, which covers the roles of `black` and `flake8`
-(`make format`, `make lint`, and both run in CI).
+After the first version worked, `src/main.py` was refactored without changing what it computed.
+Formatting and linting are done by `ruff`, which covers the roles of `black` and `flake8`.
 
 | before | after | why |
 |---|---|---|
-| `inspect_pandas(df, verbose=True)` both computed the counts and printed, switched by a flag | `summarize(df)` returns the counts, `print_overview(df)` prints | one job per function; tests no longer pass a flag to keep a function quiet |
-| `train_and_evaluate()` returned a dict with five string keys | a frozen `ModelResult` dataclass | a mistyped field fails immediately, and `plot_confusion_matrix(result)` takes one argument instead of three |
-| `"income"`, `">50K"`, `["<=50K", ">50K"]` and `40` typed out across the file | constants `TARGET`, `HIGH_INCOME`, `CLASS_LABELS`, `FULL_TIME_HOURS` | one place to change, and the names say what the values mean |
+| `inspect_pandas(df, verbose=True)` computed counts and printed, switched by a flag | `summarize()` returns the counts, `print_overview()` prints | one job per function |
+| the model function returned a dict with five string keys | a frozen `ModelResult` dataclass | a mistyped field fails immediately |
+| `"income"`, `">50K"` and `40` typed out across the file | constants `TARGET`, `HIGH_INCOME`, `FULL_TIME_HOURS` | one place to change; the names say what the values mean |
 | both plot functions repeated the same mkdir, save, close lines | `_save_figure()` | duplicated code removed |
-| `main()` ran every step in one block | `explore()` and `model_and_plot()`, leaving a four-line `main()` | `main()` now reads as the pipeline |
-| timing helpers `_time_ms` and `_run_ms` | `_best_of_ms` and `_elapsed_ms` | the names say what is measured |
-| benchmark labels hard-coded "32k rows" | labels computed from the data | the label was wrong for any other input; this is the only intended change in output |
+| `main()` ran every step in one block | `explore()` and `model_and_plot()`, leaving a four-line `main()` | `main()` reads as the pipeline |
+| benchmark labels hard-coded "32k rows" | labels computed from the data | the label was wrong for any other input |
 
-How I checked that nothing broke:
-
-* **Tests.** 16 passed before. They were updated for the new names and pass again, plus one
-  new test that `summarize()` prints nothing.
-* **Same results.** I ran the full pipeline on the real data before and after and compared:
-  all 117 lines of analysis output are identical, and both figures are byte-for-byte the same.
-* **CI.** The commit also went through lint, the format check, the Python 3.11 to 3.13 test
-  matrix and the Docker job.
+**How I checked that nothing broke:** the 16 existing tests passed before and after. I also ran the full
+pipeline on the real data before and after: all 117 lines of analysis output were identical and
+both figures were byte-for-byte the same. The model comparison was added later, on top of the
+refactored code.
 
 <img src="figures/refactor_diff.png" alt="commit diff of the refactoring" width="800">
 
 ## Further reading
 
-**Dataset**
-* [Adult (Census Income) on the UCI repository](https://archive.ics.uci.edu/dataset/2/adult): source, column descriptions, citation.
-
-**pandas**
-* [User guide](https://pandas.pydata.org/docs/user_guide/index.html), in particular
-* [group by](https://pandas.pydata.org/docs/user_guide/groupby.html) and
-*  [working with missing data](https://pandas.pydata.org/docs/user_guide/missing_data.html).
-* [10 minutes to pandas](https://pandas.pydata.org/docs/user_guide/10min.html) for a quick refresher.
-
-**polars**
-* [User guide](https://docs.pola.rs/): the [expressions](https://docs.pola.rs/user-guide/concepts/expressions-and-contexts/)
-* [Coming from pandas](https://docs.pola.rs/user-guide/migration/pandas/): side-by-side translation of common operations.
-* [Python API reference](https://docs.pola.rs/api/python/stable/reference/index.html).
-
-**scikit-learn**
-* [Pipelines and composite estimators](https://scikit-learn.org/stable/modules/compose.html): `Pipeline` and `ColumnTransformer` as used in `build_model()`.
-* [Logistic regression](https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression) and
-* [classification metrics](https://scikit-learn.org/stable/modules/model_evaluation.html#classification-metrics).
-
-**Plotting**
-* [Matplotlib quick start](https://matplotlib.org/stable/users/explain/quick_start.html) and
-* [seaborn tutorial](https://seaborn.pydata.org/tutorial.html).
-
-**Rust**
-* [The Rust Programming Language](https://doc.rust-lang.org/book/), chapter 4
-* [Understanding Ownership](https://doc.rust-lang.org/book/ch04-00-understanding-ownership.html) covers everything in the Rust notebook.
-* [Rust by Example: ownership and borrowing](https://doc.rust-lang.org/rust-by-example/scope.html).
-* [evcxr Jupyter kernel](https://github.com/evcxr/evcxr/tree/main/evcxr_jupyter): install instructions for running Rust in a notebook.
-
-**Tooling**
-* [ruff](https://docs.astral.sh/ruff/) (linter and formatter), [pytest](https://docs.pytest.org/en/stable/getting-started.html),
-* [GitHub Actions for Python](https://docs.github.com/en/actions/use-cases-and-examples/building-and-testing/building-and-testing-python),
-* [Dockerfile reference](https://docs.docker.com/reference/dockerfile/).
+| topic | links |
+|---|---|
+| Dataset | [UCI Adult](https://archive.ics.uci.edu/dataset/2/adult) |
+| pandas | [user guide](https://pandas.pydata.org/docs/user_guide/index.html) · [group by](https://pandas.pydata.org/docs/user_guide/groupby.html) · [missing data](https://pandas.pydata.org/docs/user_guide/missing_data.html) |
+| polars | [user guide](https://docs.pola.rs/) · [expressions](https://docs.pola.rs/user-guide/concepts/expressions-and-contexts/) · [coming from pandas](https://docs.pola.rs/user-guide/migration/pandas/) |
+| scikit-learn | [pipelines](https://scikit-learn.org/stable/modules/compose.html) · [cross-validation](https://scikit-learn.org/stable/modules/cross_validation.html) · [metrics](https://scikit-learn.org/stable/modules/model_evaluation.html#classification-metrics) · [gradient boosting](https://scikit-learn.org/stable/modules/ensemble.html) |
+| Rust | [ownership chapter](https://doc.rust-lang.org/book/ch04-00-understanding-ownership.html) · [Rust by Example](https://doc.rust-lang.org/rust-by-example/scope.html) · [evcxr kernel](https://github.com/evcxr/evcxr/tree/main/evcxr_jupyter) |
+| Tooling | [ruff](https://docs.astral.sh/ruff/) · [pytest](https://docs.pytest.org/en/stable/getting-started.html) · [GitHub Actions](https://docs.github.com/en/actions/use-cases-and-examples/building-and-testing/building-and-testing-python) · [Dockerfile](https://docs.docker.com/reference/dockerfile/) |

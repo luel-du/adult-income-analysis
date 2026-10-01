@@ -70,21 +70,36 @@ def test_download_data_uses_cache(raw_file):
 
 
 # 2. preprocessing
-def test_summarize_counts(df_pd):
+def test_summarize_counts_and_prints_nothing(df_pd, capsys):
     assert main.summarize(df_pd) == {
         "rows": 6, "columns": 15, "missing_values": 1, "duplicate_rows": 1
     }  # fmt: skip
-
-
-def test_summarize_prints_nothing_and_overview_prints(df_pd, capsys):
-    main.summarize(df_pd)
     assert capsys.readouterr().out == ""
+
+
+def test_print_overview_prints(df_pd, capsys):
     main.print_overview(df_pd)
     assert "missing per column" in capsys.readouterr().out
 
 
-def test_clean_removes_duplicates_in_both_libraries(df_pd, df_pl):
-    assert len(main.clean_pandas(df_pd)) == len(main.clean_polars(df_pl)) == 5
+def test_missing_value_report(df_pd):
+    report = main.missing_value_report(df_pd)
+    assert report.to_dict("records") == [{"column": "workclass", "missing_rows": 1, "share_high_income": 0.0}]
+    # edge case: nothing missing gives an empty report, not an error
+    assert main.missing_value_report(main.clean_pandas(df_pd)).empty
+
+
+def test_top_coded_report(df_pd):
+    report = main.top_coded_report(df_pd, cols=("hours_per_week",)).iloc[0]
+    assert (report["max"], report["rows_at_max"], report["next_highest"]) == (50, 2, 45)
+
+
+def test_clean_removes_duplicates_and_labels_missing(df_pd, df_pl):
+    clean_pd, clean_pl = main.clean_pandas(df_pd), main.clean_polars(df_pl)
+    assert len(clean_pd) == len(clean_pl) == 5
+    assert clean_pd["workclass"].tolist() == clean_pl["workclass"].to_list()
+    assert clean_pd["workclass"].eq(main.MISSING_LABEL).sum() == 1
+    assert clean_pd.isna().sum().sum() == 0
 
 
 def test_clean_is_idempotent(df_pd):
@@ -119,39 +134,54 @@ def test_group_by_education_polars_equals_pandas(df_pd, df_pl):
 
 
 # 4. machine learning
-def test_prepare_features_encodes_target(df_pd):
-    X, y = main.prepare_features(df_pd)
-    assert "income" not in X.columns
-    assert y.tolist() == [0, 0, 0, 1, 1, 1]
+def test_prepare_features(df_pd):
+    X, y = main.prepare_features(main.clean_pandas(df_pd))
+    assert not {"income", "fnlwgt", "education"} & set(X.columns)  # target and the two excluded columns
+    assert y.tolist() == [0, 0, 0, 1, 1]
 
 
-def test_model_predicts_binary_labels(df_pd):
-    X, y = main.prepare_features(df_pd)
-    predictions = main.build_model().fit(X, y).predict(X)
+@pytest.mark.parametrize("name", main.MODELS)
+def test_every_model_predicts_binary_labels(big_file, name):
+    X, y = main.prepare_features(main.clean_pandas(main.load_pandas(big_file)))
+    predictions = main.build_model(name).fit(X, y).predict(X)
     assert len(predictions) == len(X) and set(predictions) <= {0, 1}
-
-
-def test_train_and_evaluate_reports_accuracy(big_file):
-    result = main.train_and_evaluate(main.load_pandas(big_file))
-    assert 0.0 <= result.accuracy <= 1.0
-    assert len(result.X_test) == 8  # 20 % of 40 rows
-    assert "precision" in result.report
 
 
 def test_model_handles_unseen_category(df_pd):
     # edge case: a category absent from training must not crash prediction
-    X, y = main.prepare_features(df_pd)
+    X, y = main.prepare_features(main.clean_pandas(df_pd))
     model = main.build_model().fit(X, y)
-    unseen = X.head(1).assign(native_country="Atlantis")
-    assert model.predict(unseen)[0] in (0, 1)
+    assert model.predict(X.head(1).assign(native_country="Atlantis"))[0] in (0, 1)
+
+
+def test_evaluate_model_predicts_every_row_once(big_file):
+    df = main.clean_pandas(main.load_pandas(big_file))
+    result = main.evaluate_model(df)
+    assert len(result.y_pred) == len(df) == 40
+    assert 0.0 <= result.scores()["accuracy"] <= 1.0
+
+
+def test_recall_by_sex():
+    truth = pd.Series([1, 1, 1, 0])
+    sex = pd.Series(["Female", "Female", "Male", "Male"])
+    scores = main.ModelResult("m", truth, pd.Series([1, 0, 1, 0]), sex).scores()
+    assert (scores["recall_women"], scores["recall_men"]) == (0.5, 1.0)
+    # edge case: a group with no high earners has no recall; report NaN instead of failing
+    no_women_high = main.ModelResult("m", pd.Series([0, 0, 1, 0]), pd.Series([0, 0, 1, 0]), sex).scores()
+    assert pd.isna(no_women_high["recall_women"])
+
+
+def test_compare_models_has_one_row_per_model(big_file):
+    table = main.compare_models(main.clean_pandas(main.load_pandas(big_file)))
+    assert table["model"].tolist() == list(main.MODELS)
+    assert {"accuracy", "precision", "recall", "f1", "recall_women", "recall_men"} <= set(table.columns)
 
 
 # 5. visualisation
-def test_plots_write_png_files(big_file, tmp_path):
-    df = main.load_pandas(big_file)
-    result = main.train_and_evaluate(df)
-    fig1 = main.plot_income_by_age(df, tmp_path / "a.png")
-    fig2 = main.plot_confusion_matrix(result, tmp_path / "b.png")
+def test_plots_write_png_files(df_pd, tmp_path):
+    scores = pd.DataFrame({"model": ["a", "b"], "recall_women": [0.5, 0.7], "recall_men": [0.6, 0.9]})
+    fig1 = main.plot_income_by_education(main.clean_pandas(df_pd), tmp_path / "a.png")
+    fig2 = main.plot_recall_by_sex(scores, tmp_path / "b.png")
     assert fig1.stat().st_size > 0 and fig2.stat().st_size > 0
 
 
@@ -160,12 +190,13 @@ def test_benchmark_table(raw_file):
     table = main.benchmark(raw_file, scale=2, repeats=1)
     assert list(table.columns) == ["operation", "pandas_ms", "polars_ms", "speedup"]
     assert len(table) == 4 and (table["speedup"] > 0).all()
+    assert table["operation"].str.contains("6 rows").sum() == 2  # labels come from the data
 
 
 # system test: the whole pipeline end to end
 def test_main_runs_end_to_end(big_file, tmp_path, capsys):
     main.main(path=big_file, fig_dir=tmp_path / "figs")
     out = capsys.readouterr().out
-    assert "logistic regression accuracy:" in out and "pandas vs polars" in out
-    assert (tmp_path / "figs" / "income_by_age.png").exists()
-    assert (tmp_path / "figs" / "confusion_matrix.png").exists()
+    assert "models, 5-fold cross-validated" in out and "pandas vs polars" in out
+    assert (tmp_path / "figs" / "income_by_education.png").exists()
+    assert (tmp_path / "figs" / "recall_by_sex.png").exists()

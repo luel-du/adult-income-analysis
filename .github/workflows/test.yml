@@ -5,7 +5,7 @@ on:
   pull_request:
   workflow_dispatch:
   schedule:
-    # Mondays 06:00 UTC. Dependencies are not pinned and the data comes from UCI,
+    # Mondays 06:00 UTC. The data is downloaded from UCI, which can change or go offline,
     # so a weekly run catches breakage that no commit of ours caused.
     - cron: "0 6 * * 1"
 
